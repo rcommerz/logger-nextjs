@@ -1,164 +1,164 @@
 name: Publish Package
 
 on:
-    push:
-        tags:
-            - "v*.*.*"
-    workflow_dispatch:
-        inputs:
-            version:
-                description: "Version to publish (e.g., 1.0.0)"
-                required: true
-            create_tag:
-                description: "Create git tag"
-                type: boolean
-                default: true
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g., 1.0.0)"
+        required: true
+      create_tag:
+        description: "Create git tag"
+        type: boolean
+        default: true
 
 jobs:
-    validate:
-        runs-on: ubuntu-latest
-        outputs:
-            version: ${{ steps.get_version.outputs.version }}
-            tag_name: ${{ steps.get_version.outputs.tag_name }}
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      tag_name: ${{ steps.get_version.outputs.tag_name }}
 
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            - name: Get version from tag or input
-              id: get_version
-              run: |
-                  if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-                    VERSION="${{ github.event.inputs.version }}"
-                    echo "version=${VERSION}" >> $GITHUB_OUTPUT
-                    echo "tag_name=v${VERSION}" >> $GITHUB_OUTPUT
-                  else
-                    TAG=${GITHUB_REF#refs/tags/}
-                    VERSION=${TAG#v}
-                    echo "version=${VERSION}" >> $GITHUB_OUTPUT
-                    echo "tag_name=${TAG}" >> $GITHUB_OUTPUT
-                  fi
+      - name: Get version from tag or input
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "tag_name=v${VERSION}" >> $GITHUB_OUTPUT
+          else
+            TAG=${GITHUB_REF#refs/tags/}
+            VERSION=${TAG#v}
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "tag_name=${TAG}" >> $GITHUB_OUTPUT
+          fi
 
-            - name: Validate version format
-              run: |
-                  VERSION="${{ steps.get_version.outputs.version }}"
-                  if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                    echo "Error: Version must be in format X.Y.Z"
-                    exit 1
-                  fi
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Version must be in format X.Y.Z"
+            exit 1
+          fi
 
-            - name: Check if tag exists (workflow_dispatch only)
-              if: github.event_name == 'workflow_dispatch'
-              run: |
-                  TAG="${{ steps.get_version.outputs.tag_name }}"
-                  if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
-                    echo "Error: Tag ${TAG} already exists"
-                    exit 1
-                  fi
+      - name: Check if tag exists (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="${{ steps.get_version.outputs.tag_name }}"
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            echo "Error: Tag ${TAG} already exists"
+            exit 1
+          fi
 
-            - name: Setup Node.js
-              uses: actions/setup-node@v4
-              with:
-                  node-version: "20.x"
-                  cache: "npm"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
 
-            - name: Install dependencies
-              run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-            - name: Run tests
-              run: npm test -- --coverage
+      - name: Run tests
+        run: npm test -- --coverage
 
-            - name: Verify coverage threshold
-              run: |
-                  echo "Verifying minimum 90% coverage..."
-                  npm test -- --coverage --silent
+      - name: Verify coverage threshold
+        run: |
+          echo "Verifying minimum 90% coverage..."
+          npm test -- --coverage --silent
 
-            - name: Build package
-              run: npm run build
+      - name: Build package
+        run: npm run build
 
-            - name: Check required files
-              run: |
-                  for file in README.md LICENSE package.json; do
-                    if [ ! -f "$file" ]; then
-                      echo "Error: Required file $file not found"
-                      exit 1
-                    fi
-                  done
+      - name: Check required files
+        run: |
+          for file in README.md LICENSE package.json; do
+            if [ ! -f "$file" ]; then
+              echo "Error: Required file $file not found"
+              exit 1
+            fi
+          done
 
-    publish:
-        needs: validate
-        runs-on: ubuntu-latest
-        environment: npm-publish
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: npm-publish
 
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-            - name: Setup Node.js
-              uses: actions/setup-node@v4
-              with:
-                  node-version: "20.x"
-                  registry-url: "https://registry.npmjs.org"
-                  cache: "npm"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          registry-url: "https://registry.npmjs.org"
+          cache: "npm"
 
-            - name: Install dependencies
-              run: npm ci
+      - name: Install dependencies
+        run: npm ci
 
-            - name: Build package
-              run: npm run build
+      - name: Build package
+        run: npm run build
 
-            - name: Update package.json version
-              run: |
-                  npm version ${{ needs.validate.outputs.version }} --no-git-tag-version
+      - name: Update package.json version
+        run: |
+          npm version ${{ needs.validate.outputs.version }} --no-git-tag-version --allow-same-version
 
-            - name: Create and push git tag (workflow_dispatch only)
-              if: github.event_name == 'workflow_dispatch' && github.event.inputs.create_tag == 'true'
-              run: |
-                  git config user.name "github-actions[bot]"
-                  git config user.email "github-actions[bot]@users.noreply.github.com"
-                  git add package.json
-                  git commit -m "chore: bump version to ${{ needs.validate.outputs.version }}"
-                  git tag -a ${{ needs.validate.outputs.tag_name }} -m "Release ${{ needs.validate.outputs.tag_name }}"
-                  git push origin HEAD:${{ github.ref_name }}
-                  git push origin ${{ needs.validate.outputs.tag_name }}
+      - name: Create and push git tag (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.create_tag == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "chore: bump version to ${{ needs.validate.outputs.version }}"
+          git tag -a ${{ needs.validate.outputs.tag_name }} -m "Release ${{ needs.validate.outputs.tag_name }}"
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin ${{ needs.validate.outputs.tag_name }}
 
-            - name: Publish to npm
-              run: npm publish --access public
-              env:
-                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-            - name: Create GitHub Release
-              uses: actions/create-release@v1
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              with:
-                  tag_name: ${{ needs.validate.outputs.tag_name }}
-                  release_name: Release ${{ needs.validate.outputs.tag_name }}
-                  body: |
-                      ## Release ${{ needs.validate.outputs.version }}
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.validate.outputs.tag_name }}
+          release_name: Release ${{ needs.validate.outputs.tag_name }}
+          body: |
+            ## Release ${{ needs.validate.outputs.version }}
 
-                      ### Installation
-                      ```bash
-                      npm install @rcommerz/logger-nextjs@${{ needs.validate.outputs.version }}
-                      ```
+            ### Installation
+            ```bash
+            npm install @rcommerz/logger-nextjs@${{ needs.validate.outputs.version }}
+            ```
 
-                      ### Changes
-                      See [CHANGELOG.md](https://github.com/rcommerz/logger-nextjs/blob/main/CHANGELOG.md) for details.
+            ### Changes
+            See [CHANGELOG.md](https://github.com/rcommerz/logger-nextjs/blob/main/CHANGELOG.md) for details.
 
-                  draft: false
-                  prerelease: false
+          draft: false
+          prerelease: false
 
-            - name: Summary
-              run: |
-                  echo "### :rocket: Package Published Successfully!" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Package**: @rcommerz/logger-nextjs" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Version**: ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Tag**: ${{ needs.validate.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "#### Install Command" >> $GITHUB_STEP_SUMMARY
-                  echo '```bash' >> $GITHUB_STEP_SUMMARY
-                  echo "npm install @rcommerz/logger-nextjs@${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-                  echo '```' >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**NPM**: https://www.npmjs.com/package/@rcommerz/logger-nextjs" >> $GITHUB_STEP_SUMMARY
+      - name: Summary
+        run: |
+          echo "### :rocket: Package Published Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Package**: @rcommerz/logger-nextjs" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ needs.validate.outputs.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Install Command" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "npm install @rcommerz/logger-nextjs@${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**NPM**: https://www.npmjs.com/package/@rcommerz/logger-nextjs" >> $GITHUB_STEP_SUMMARY
