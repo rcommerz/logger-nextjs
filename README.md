@@ -1,4 +1,4 @@
-# @rcommerz/logger-nextjs
+# logger-nextjs
 
 [![npm version](https://badge.fury.io/js/%40rcommerz%2Flogger-nextjs.svg)](https://www.npmjs.com/package/@rcommerz/logger-nextjs)
 [![CI Tests](https://github.com/rcommerz/logger-nextjs/actions/workflows/test.yml/badge.svg)](https://github.com/rcommerz/logger-nextjs/actions/workflows/test.yml)
