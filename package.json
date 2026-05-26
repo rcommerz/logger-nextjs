@@ -1,6 +1,6 @@
 {
   "name": "@rcommerz/logger-nextjs",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Production-ready structured logging for Next.js/React applications with OpenTelemetry support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
