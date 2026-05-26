@@ -1,9 +1,19 @@
 {
   "name": "@rcommerz/logger-nextjs",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Production-ready structured logging for Next.js/React applications with OpenTelemetry support",
   "main": "dist/index.js",
+  "module": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "jest",
