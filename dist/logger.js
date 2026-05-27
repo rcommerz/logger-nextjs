@@ -80,16 +80,7 @@ async function initializePino(config) {
             timestamp: () => `,"@timestamp":"${new Date().toISOString()}"`,
             messageKey: "message",
         };
-        // Enable pretty printing in development
-        if (config.env === "development" && config.enableConsole !== false) {
-            const pinoPretty = await Promise.resolve().then(() => __importStar(require("pino-pretty")));
-            return pino.default(pinoConfig, pinoPretty.default({
-                colorize: true,
-                translateTime: "HH:MM:ss.l",
-                ignore: "pid,hostname",
-                messageFormat: "{msg}",
-            }));
-        }
+        // Single-line JSON output for both development and production
         return pino.default(pinoConfig);
     }
     catch (error) {
@@ -134,7 +125,7 @@ class Logger {
             this.startBatchTimer();
         }
         // Handle page unload - flush remaining logs
-        if (isBrowser) {
+        if (isBrowser && typeof window !== "undefined") {
             window.addEventListener("beforeunload", () => this.flush());
         }
     }
@@ -187,7 +178,7 @@ class Logger {
      * Get browser information
      */
     getBrowserInfo() {
-        if (isBrowser && window.navigator) {
+        if (isBrowser && typeof window !== "undefined" && window.navigator) {
             return {
                 user_agent: window.navigator.userAgent,
                 platform: "browser",
@@ -257,10 +248,9 @@ class Logger {
         }
     }
     /**
-     * Output log to browser console with formatting
+     * Output log to browser console with JSON formatting
      */
     browserConsoleLog(level, message, context) {
-        const timestamp = new Date().toLocaleTimeString();
         const consoleMethod = level === "ERROR"
             ? "error"
             : level === "WARN"
@@ -270,22 +260,15 @@ class Logger {
                     : "log";
         const consoleFunc = this.originalConsole?.[consoleMethod] || console[consoleMethod];
         if (typeof consoleFunc !== "undefined") {
-            const styles = {
-                DEBUG: "color: cyan",
-                INFO: "color: green",
-                WARN: "color: orange",
-                ERROR: "color: red",
+            // Build complete log entry with all context
+            const logEntry = {
+                "@timestamp": new Date().toISOString(),
+                "log.level": level,
+                message,
+                ...context,
             };
-            consoleFunc(`%c[${timestamp}] %c${level}%c ${message}`, "color: gray", styles[level] || "", "font-weight: normal");
-            // Log context separately if present
-            if (context && Object.keys(context).length > 0) {
-                const displayContext = { ...context };
-                // Remove standard fields to reduce noise
-                ["@timestamp", "log.level", "log_type", "message", "service.name", "service.version", "env", "platform"].forEach((key) => delete displayContext[key]);
-                if (Object.keys(displayContext).length > 0) {
-                    consoleFunc(displayContext);
-                }
-            }
+            // Output as single-line JSON
+            consoleFunc(JSON.stringify(logEntry));
         }
     }
     /**

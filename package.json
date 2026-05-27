@@ -1,7 +1,7 @@
 {
   "name": "@rcommerz/logger-nextjs",
-  "version": "1.0.4",
-  "description": "Production-ready structured logging for Next.js/React applications with OpenTelemetry support",
+  "version": "1.1.0",
+  "description": "Production-ready structured logging for Next.js/React applications with OpenTelemetry support and Pino",
   "main": "dist/index.js",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -64,8 +64,7 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.8.0",
-    "pino": "^8.19.0",
-    "pino-pretty": "^11.0.0"
+    "pino": "^8.19.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

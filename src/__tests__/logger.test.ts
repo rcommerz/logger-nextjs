@@ -65,44 +65,48 @@ describe("Logger", () => {
       const logger = Logger.initialize(mockConfig);
       logger.info("Test info message");
 
-      // Check that console.log was called with formatted output
+      // Check that console.log was called with JSON output
       expect(consoleLogSpy).toHaveBeenCalled();
-      const firstCall = consoleLogSpy.mock.calls[0][0];
-      expect(firstCall).toContain("INFO");
-      expect(firstCall).toContain("Test info message");
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData["log.level"]).toBe("INFO");
+      expect(logData.message).toBe("Test info message");
     });
 
     it("should log error messages", () => {
       const logger = Logger.initialize(mockConfig);
       logger.error("Test error message");
 
-      // Check that console.error was called with formatted output
+      // Check that console.error was called with JSON output
       expect(consoleErrorSpy).toHaveBeenCalled();
-      const firstCall = consoleErrorSpy.mock.calls[0][0];
-      expect(firstCall).toContain("ERROR");
-      expect(firstCall).toContain("Test error message");
+      const logOutput = consoleErrorSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData["log.level"]).toBe("ERROR");
+      expect(logData.message).toBe("Test error message");
     });
 
     it("should log warning messages", () => {
       const logger = Logger.initialize(mockConfig);
       logger.warn("Test warning message");
 
-      // Check that console.warn was called with formatted output
+      // Check that console.warn was called with JSON output
       expect(consoleWarnSpy).toHaveBeenCalled();
-      const firstCall = consoleWarnSpy.mock.calls[0][0];
-      expect(firstCall).toContain("WARN");
-      expect(firstCall).toContain("Test warning message");
+      const logOutput = consoleWarnSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData["log.level"]).toBe("WARN");
+      expect(logData.message).toBe("Test warning message");
     });
 
     it("should log debug messages when level is DEBUG", () => {
       const logger = Logger.initialize({ ...mockConfig, level: "DEBUG" });
       logger.debug("Test debug message");
 
-      // Check that console.debug was called with formatted output
+      // Check that console.debug was called with JSON output
       expect(consoleDebugSpy).toHaveBeenCalled();
-      const firstCall = consoleDebugSpy.mock.calls[0][0];
-      expect(firstCall).toContain("DEBUG");
-      expect(firstCall).toContain("Test debug message");
+      const logOutput = consoleDebugSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData["log.level"]).toBe("DEBUG");
+      expect(logData.message).toBe("Test debug message");
     });
 
     it("should not log debug messages when level is INFO", () => {
@@ -118,14 +122,13 @@ describe("Logger", () => {
       const logger = Logger.initialize(mockConfig);
       logger.info("Test message", { user_id: "123", action: "login" });
 
-      // First call is the formatted message
-      expect(consoleLogSpy.mock.calls[0][0]).toContain("Test message");
-
-      // Second call contains the context object
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleLogSpy.mock.calls[1][0];
-      expect(contextCall.user_id).toBe("123");
-      expect(contextCall.action).toBe("login");
+      // Parse JSON output
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Test message");
+      expect(logData.user_id).toBe("123");
+      expect(logData.action).toBe("login");
     });
 
     it("should extract error details from Error object", () => {
@@ -133,25 +136,28 @@ describe("Logger", () => {
       const error = new Error("Test error");
       logger.error("Error occurred", { error });
 
-      // First call is the formatted message
-      expect(consoleErrorSpy.mock.calls[0][0]).toContain("Error occurred");
-
-      // Second call contains the context with error details
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleErrorSpy.mock.calls[1][0];
-      expect(contextCall.error_type).toBe("Error");
-      expect(contextCall.error_message).toBe("Test error");
-      expect(contextCall.error_stack).toBeDefined();
+      // Parse JSON output
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      const logOutput = consoleErrorSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Error occurred");
+      expect(logData.error_type).toBe("Error");
+      expect(logData.error_message).toBe("Test error");
+      expect(logData.error_stack).toBeDefined();
     });
 
     it("should include service metadata", () => {
       const logger = Logger.initialize(mockConfig);
       logger.info("Test message");
 
-      // Service metadata is in the context object (second call if context exists, or not logged if no custom context)
-      // Since we have no custom context, just check that the message was logged
+      // Parse JSON output
       expect(consoleLogSpy).toHaveBeenCalled();
-      expect(consoleLogSpy.mock.calls[0][0]).toContain("Test message");
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Test message");
+      expect(logData["service.name"]).toBe("test-service");
+      expect(logData["service.version"]).toBe("1.0.0");
+      expect(logData.env).toBe("test");
     });
   });
 
@@ -160,53 +166,53 @@ describe("Logger", () => {
       const logger = Logger.initialize(mockConfig);
       logger.http("HTTP request", { method: "GET", url: "/api/test" });
 
-      // First call is the formatted message
-      expect(consoleLogSpy.mock.calls[0][0]).toContain("HTTP request");
-
-      // Second call contains the context with log_type and custom fields
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleLogSpy.mock.calls[1][0];
-      expect(contextCall.log_type).toBe("http");
-      expect(contextCall.method).toBe("GET");
+      // Parse JSON output
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("HTTP request");
+      expect(logData.log_type).toBe("http");
+      expect(logData.method).toBe("GET");
+      expect(logData.url).toBe("/api/test");
     });
 
     it("should log security events", () => {
       const logger = Logger.initialize(mockConfig);
       logger.security("Security event", { action: "failed_login" });
 
-      // First call is the formatted message
-      expect(consoleWarnSpy.mock.calls[0][0]).toContain("Security event");
-
-      // Second call contains the context with log_type
-      expect(consoleWarnSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleWarnSpy.mock.calls[1][0];
-      expect(contextCall.log_type).toBe("security");
+      // Parse JSON output
+      expect(consoleWarnSpy).toHaveBeenCalled();
+      const logOutput = consoleWarnSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Security event");
+      expect(logData.log_type).toBe("security");
+      expect(logData.action).toBe("failed_login");
     });
 
     it("should log audit events", () => {
       const logger = Logger.initialize(mockConfig);
       logger.audit("Audit event", { action: "user_updated" });
 
-      // First call is the formatted message
-      expect(consoleLogSpy.mock.calls[0][0]).toContain("Audit event");
-
-      // Second call contains the context with log_type
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleLogSpy.mock.calls[1][0];
-      expect(contextCall.log_type).toBe("audit");
+      // Parse JSON output
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Audit event");
+      expect(logData.log_type).toBe("audit");
+      expect(logData.action).toBe("user_updated");
     });
 
     it("should log performance metrics", () => {
       const logger = Logger.initialize(mockConfig);
       logger.performance("Performance metric", { duration_ms: 123 });
 
-      // First call is the formatted message
-      expect(consoleLogSpy.mock.calls[0][0]).toContain("Performance metric");
-
-      // Second call contains the context with log_type
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleLogSpy.mock.calls[1][0];
-      expect(contextCall.log_type).toBe("performance");
+      // Parse JSON output
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Performance metric");
+      expect(logData.log_type).toBe("performance");
+      expect(logData.duration_ms).toBe(123);
     });
   });
 
@@ -219,14 +225,13 @@ describe("Logger", () => {
 
       expect(result).toBe("result");
 
-      // First call is the formatted message
-      expect(consoleLogSpy.mock.calls[0][0]).toContain("Performance: test-operation");
-
-      // Second call contains the context with component and duration
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleLogSpy.mock.calls[1][0];
-      expect(contextCall.component).toBe("test-operation");
-      expect(contextCall.duration_ms).toBeDefined();
+      // Parse JSON output
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Performance: test-operation");
+      expect(logData.component).toBe("test-operation");
+      expect(logData.duration_ms).toBeDefined();
     });
 
     it("should measure async function execution", async () => {
@@ -237,13 +242,12 @@ describe("Logger", () => {
 
       expect(result).toBe("async-result");
 
-      // First call is the formatted message
-      expect(consoleLogSpy.mock.calls[0][0]).toContain("Performance: async-operation");
-
-      // Second call contains the context
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleLogSpy.mock.calls[1][0];
-      expect(contextCall.component).toBe("async-operation");
+      // Parse JSON output
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Performance: async-operation");
+      expect(logData.component).toBe("async-operation");
     });
 
     it("should log error when measured function throws", () => {
@@ -254,13 +258,12 @@ describe("Logger", () => {
         });
       }).toThrow("Test error");
 
-      // First call is the formatted error message
-      expect(consoleErrorSpy.mock.calls[0][0]).toContain("Performance measurement failed: failing-operation");
-
-      // Second call contains the context with error details
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleErrorSpy.mock.calls[1][0];
-      expect(contextCall.error_message).toBe("Test error");
+      // Parse JSON output
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      const logOutput = consoleErrorSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Performance measurement failed: failing-operation");
+      expect(logData.error_message).toBe("Test error");
     });
 
     it("should log error when async measured function throws", async () => {
@@ -272,14 +275,13 @@ describe("Logger", () => {
         }),
       ).rejects.toThrow("Async test error");
 
-      // First call is the formatted error message
-      expect(consoleErrorSpy.mock.calls[0][0]).toContain("Performance measurement failed: failing-async-operation");
-
-      // Second call contains the context
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleErrorSpy.mock.calls[1][0];
-      expect(contextCall.error_message).toBe("Async test error");
-      expect(contextCall.component).toBe("failing-async-operation");
+      // Parse JSON output
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      const logOutput = consoleErrorSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Performance measurement failed: failing-async-operation");
+      expect(logData.error_message).toBe("Async test error");
+      expect(logData.component).toBe("failing-async-operation");
     });
   });
 
@@ -386,14 +388,13 @@ describe("Logger", () => {
       const logger = Logger.initialize(mockConfig);
       logger.info("Test with trace");
 
-      // First call is the formatted message
-      expect(consoleLogSpy.mock.calls[0][0]).toContain("Test with trace");
-
-      // Second call contains the context with trace information
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleLogSpy.mock.calls[1][0];
-      expect(contextCall.trace_id).toBe("abc123trace");
-      expect(contextCall.span_id).toBe("def456span");
+      // Parse JSON output
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Test with trace");
+      expect(logData.trace_id).toBe("abc123trace");
+      expect(logData.span_id).toBe("def456span");
 
       jest.restoreAllMocks();
     });
@@ -402,8 +403,6 @@ describe("Logger", () => {
   describe("Browser Information", () => {
     it("should capture browser user agent", () => {
       const mockUserAgent = "Mozilla/5.0 Test Browser";
-      const originalWindow = global.window;
-
       // Mock window.navigator while keeping other window methods
       Object.defineProperty(global.window, "navigator", {
         value: {
@@ -416,10 +415,12 @@ describe("Logger", () => {
       const logger = Logger.initialize(mockConfig);
       logger.info("Test message");
 
-      // Second call contains the context with user agent
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-      const contextCall = consoleLogSpy.mock.calls[1][0];
-      expect(contextCall.user_agent).toBe(mockUserAgent);
+      // Parse JSON output
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Test message");
+      expect(logData.user_agent).toBe(mockUserAgent);
     });
 
     it("should handle missing window object", () => {
@@ -432,16 +433,13 @@ describe("Logger", () => {
       const logger = Logger.initialize(mockConfig);
       logger.info("Test without window");
 
-      // First call is the formatted message
-      expect(consoleLogSpy.mock.calls[0][0]).toContain("Test without window");
-
-      // Since there's no custom context, check that platform is set to "server" in the context if it's logged
-      // When window is not available, user_agent should not be present
-      if (consoleLogSpy.mock.calls.length > 1) {
-        const contextCall = consoleLogSpy.mock.calls[1][0];
-        expect(contextCall.user_agent).toBeUndefined();
-        expect(contextCall.platform).toBe("server");
-      }
+      // Parse JSON output
+      expect(consoleLogSpy).toHaveBeenCalled();
+      const logOutput = consoleLogSpy.mock.calls[0][0];
+      const logData = JSON.parse(logOutput);
+      expect(logData.message).toBe("Test without window");
+      expect(logData.user_agent).toBeUndefined();
+      expect(logData.platform).toBe("server");
 
       // Restore window
       global.window = originalWindow;

@@ -53,17 +53,7 @@ async function initializePino(config: LoggerConfig): Promise<PinoLogger | null> 
       messageKey: "message",
     };
 
-    // Enable pretty printing in development
-    if (config.env === "development" && config.enableConsole !== false) {
-      const pinoPretty = await import("pino-pretty");
-      return pino.default(pinoConfig, pinoPretty.default({
-        colorize: true,
-        translateTime: "HH:MM:ss.l",
-        ignore: "pid,hostname",
-        messageFormat: "{msg}",
-      }));
-    }
-
+    // Single-line JSON output for both development and production
     return pino.default(pinoConfig);
   } catch (error) {
     console.error("Failed to initialize pino:", error);
@@ -268,14 +258,13 @@ export class Logger {
   }
 
   /**
-   * Output log to browser console with formatting
+   * Output log to browser console with JSON formatting
    */
   private browserConsoleLog(
     level: LogLevel,
     message: string,
     context?: Record<string, any>,
   ): void {
-    const timestamp = new Date().toLocaleTimeString();
     const consoleMethod =
       level === "ERROR"
         ? "error"
@@ -288,32 +277,16 @@ export class Logger {
     const consoleFunc = this.originalConsole?.[consoleMethod] || console[consoleMethod];
 
     if (typeof consoleFunc !== "undefined") {
-      const styles = {
-        DEBUG: "color: cyan",
-        INFO: "color: green",
-        WARN: "color: orange",
-        ERROR: "color: red",
+      // Build complete log entry with all context
+      const logEntry = {
+        "@timestamp": new Date().toISOString(),
+        "log.level": level,
+        message,
+        ...context,
       };
 
-      consoleFunc(
-        `%c[${timestamp}] %c${level}%c ${message}`,
-        "color: gray",
-        styles[level] || "",
-        "font-weight: normal",
-      );
-
-      // Log context separately if present
-      if (context && Object.keys(context).length > 0) {
-        const displayContext = { ...context };
-        // Remove standard fields to reduce noise (but keep log_type and platform)
-        ["@timestamp", "log.level", "message", "service.name", "service.version", "env"].forEach(
-          (key) => delete displayContext[key]
-        );
-
-        if (Object.keys(displayContext).length > 0) {
-          consoleFunc(displayContext);
-        }
-      }
+      // Output as single-line JSON
+      consoleFunc(JSON.stringify(logEntry));
     }
   }
 

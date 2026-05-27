@@ -42,7 +42,7 @@ export declare class Logger {
      */
     private logWithPino;
     /**
-     * Output log to browser console with formatting
+     * Output log to browser console with JSON formatting
      */
     private browserConsoleLog;
     /**
