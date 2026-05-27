@@ -1,6 +1,7 @@
 import { LoggerConfig, LogContext } from "./types";
+import type { Logger as PinoLogger } from "pino";
 /**
- * Browser-compatible structured logger for Next.js/React applications
+ * Browser-compatible structured logger for Next.js/React applications with Pino
  */
 export declare class Logger {
     private static instance;
@@ -8,6 +9,9 @@ export declare class Logger {
     private logBuffer;
     private batchTimer;
     private readonly LOG_LEVELS;
+    private pinoLogger;
+    private initPromise;
+    private originalConsole;
     private constructor();
     /**
      * Initialize the logger singleton
@@ -34,9 +38,13 @@ export declare class Logger {
      */
     private buildLogEntry;
     /**
-     * Output log to console
+     * Log using Pino (server-side) or console (browser)
      */
-    private consoleLog;
+    private logWithPino;
+    /**
+     * Output log to browser console with formatting
+     */
+    private browserConsoleLog;
     /**
      * Send log to remote endpoint
      */
@@ -86,6 +94,10 @@ export declare class Logger {
      */
     audit(message: string, context?: LogContext): void;
     /**
+     * Log database operations
+     */
+    database(message: string, context?: LogContext): void;
+    /**
      * Log performance metrics
      */
     performance(message: string, context?: LogContext): void;
@@ -97,6 +109,14 @@ export declare class Logger {
      * Measure and log async performance
      */
     measureAsync<T>(name: string, fn: () => Promise<T>, metadata?: Record<string, any>): Promise<T>;
+    /**
+     * Create a child logger with additional context
+     */
+    child(bindings: Record<string, any>): Logger;
+    /**
+     * Get the underlying Pino logger instance (server-side only)
+     */
+    getPinoInstance(): PinoLogger | null;
     /**
      * Clean up logger resources
      */

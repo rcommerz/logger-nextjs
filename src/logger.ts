@@ -1,8 +1,78 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable no-console */
+
 import { trace, context } from "@opentelemetry/api";
 import { LoggerConfig, LogLevel, LogType, LogContext, LogEntry } from "./types";
+import type { Logger as PinoLogger } from "pino";
 
 /**
- * Browser-compatible structured logger for Next.js/React applications
+ * Detect if we're running in a browser or Node.js environment
+ */
+const isBrowser = typeof window !== "undefined" && typeof window.document !== "undefined";
+
+/**
+ * Lazy-load pino only in Node.js environment
+ */
+let pino: typeof import("pino") | null = null;
+
+/**
+ * Initialize pino (server-side only)
+ */
+async function initializePino(config: LoggerConfig): Promise<PinoLogger | null> {
+  if (isBrowser) {
+    return null;
+  }
+
+  try {
+    pino = await import("pino");
+
+    const pinoConfig: any = {
+      level: config.level?.toLowerCase() || "info",
+      base: {
+        service: config.serviceName,
+        version: config.serviceVersion,
+        env: config.env,
+        ...config.metadata,
+      },
+      formatters: {
+        level: (label: string) => {
+          return { "log.level": label.toUpperCase() };
+        },
+        bindings: (bindings: any) => {
+          return {
+            "service.name": bindings.service,
+            "service.version": bindings.version,
+            env: bindings.env,
+            ...Object.keys(bindings)
+              .filter(k => !['service', 'version', 'env', 'pid', 'hostname'].includes(k))
+              .reduce((acc, k) => ({ ...acc, [k]: bindings[k] }), {}),
+          };
+        },
+      },
+      timestamp: () => `,"@timestamp":"${new Date().toISOString()}"`,
+      messageKey: "message",
+    };
+
+    // Enable pretty printing in development
+    if (config.env === "development" && config.enableConsole !== false) {
+      const pinoPretty = await import("pino-pretty");
+      return pino.default(pinoConfig, pinoPretty.default({
+        colorize: true,
+        translateTime: "HH:MM:ss.l",
+        ignore: "pid,hostname",
+        messageFormat: "{msg}",
+      }));
+    }
+
+    return pino.default(pinoConfig);
+  } catch (error) {
+    console.error("Failed to initialize pino:", error);
+    return null;
+  }
+}
+
+/**
+ * Browser-compatible structured logger for Next.js/React applications with Pino
  */
 export class Logger {
   private static instance: Logger;
@@ -10,6 +80,8 @@ export class Logger {
   private logBuffer: LogEntry[] = [];
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly LOG_LEVELS = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
+  private pinoLogger: PinoLogger | null = null;
+  private initPromise: Promise<void> | null = null;
   private originalConsole: {
     log: (...args: any[]) => void;
     info: (...args: any[]) => void;
@@ -19,7 +91,7 @@ export class Logger {
   };
 
   private constructor(config: LoggerConfig) {
-    // Store original console methods before any interception
+    // Store original console methods
     this.originalConsole = {
       log: console.log.bind(console),
       info: console.info.bind(console),
@@ -37,13 +109,20 @@ export class Logger {
       ...config,
     };
 
+    // Initialize pino asynchronously (only in Node.js)
+    if (!isBrowser) {
+      this.initPromise = initializePino(this.config).then((logger) => {
+        this.pinoLogger = logger;
+      });
+    }
+
     // Start batch timer if batching is enabled
     if (this.config.enableBatching && this.config.remoteEndpoint) {
       this.startBatchTimer();
     }
 
     // Handle page unload - flush remaining logs
-    if (typeof window !== "undefined") {
+    if (isBrowser && typeof window !== "undefined") {
       window.addEventListener("beforeunload", () => this.flush());
     }
   }
@@ -101,13 +180,16 @@ export class Logger {
   /**
    * Get browser information
    */
-  private getBrowserInfo(): { user_agent?: string } {
-    if (typeof window !== "undefined" && window.navigator) {
+  private getBrowserInfo(): { user_agent?: string; platform?: string } {
+    if (isBrowser && typeof window !== "undefined" && window.navigator) {
       return {
         user_agent: window.navigator.userAgent,
+        platform: "browser",
       };
     }
-    return {};
+    return {
+      platform: "server",
+    };
   }
 
   /**
@@ -148,87 +230,52 @@ export class Logger {
   }
 
   /**
-   * Output log to console
+   * Log using Pino (server-side) or console (browser)
    */
-  private consoleLog(level: LogLevel, entry: LogEntry): void {
-    if (!this.config.enableConsole) return;
+  private async logWithPino(
+    level: LogLevel,
+    message: string,
+    context?: Record<string, any>,
+  ): Promise<void> {
+    // Wait for pino initialization
+    if (this.initPromise) {
+      await this.initPromise;
+      this.initPromise = null; // Only wait once
+    }
 
-    // Use Node.js stdout/stderr for direct output (bypasses console interception)
-    const isNode = typeof process !== "undefined" && process.versions?.node;
+    if (this.pinoLogger && !isBrowser) {
+      // Server-side: Use Pino
+      const pinoLevel = level.toLowerCase() as "debug" | "info" | "warn" | "error";
+      const pinoContext = { ...context };
 
-    if (isNode) {
-      this.nodeConsoleLog(level, entry);
-    } else {
-      // Browser - use original console methods
-      this.browserConsoleLog(level, entry);
+      // Handle error object specially for Pino
+      if (context?.error_type && context?.error_message) {
+        pinoContext.err = {
+          type: context.error_type,
+          message: context.error_message,
+          stack: context.error_stack,
+        };
+        delete pinoContext.error_type;
+        delete pinoContext.error_message;
+        delete pinoContext.error_stack;
+      }
+
+      this.pinoLogger[pinoLevel](pinoContext, message);
+    } else if (isBrowser && this.config.enableConsole) {
+      // Browser: Use enhanced console logging
+      this.browserConsoleLog(level, message, context);
     }
   }
 
   /**
-   * Output log to Node.js stdout/stderr (bypasses console interception)
+   * Output log to browser console with formatting
    */
-  private nodeConsoleLog(level: LogLevel, entry: LogEntry): void {
-    const timestamp = new Date(entry["@timestamp"]).toLocaleTimeString();
-
-    // ANSI color codes
-    const colors = {
-      DEBUG: "\x1b[36m", // Cyan
-      INFO: "\x1b[32m",  // Green
-      WARN: "\x1b[33m",  // Yellow
-      ERROR: "\x1b[31m", // Red
-      reset: "\x1b[0m",
-      gray: "\x1b[90m",
-      bold: "\x1b[1m",
-    };
-
-    const color = colors[level] || colors.reset;
-
-    // Build pretty formatted line
-    let output = `${colors.gray}[${timestamp}]${colors.reset} ${color}${colors.bold}${level}${colors.reset} ${colors.bold}${entry.message}${colors.reset}`;
-
-    // Add component/source if available
-    if (entry.component || entry.source) {
-      output += ` ${colors.gray}[${entry.component || entry.source}]${colors.reset}`;
-    }
-
-    output += "\n";
-
-    // Add context if present (excluding standard fields)
-    const contextKeys = Object.keys(entry).filter(
-      (key) =>
-        ![
-          "@timestamp",
-          "log.level",
-          "log_type",
-          "message",
-          "service.name",
-          "service.version",
-          "env",
-          "service_type",
-          "platform",
-          "component",
-          "source",
-          "user_agent",
-        ].includes(key),
-    );
-
-    if (contextKeys.length > 0) {
-      const context: Record<string, any> = {};
-      contextKeys.forEach((key) => {
-        context[key] = entry[key as keyof LogEntry];
-      });
-      output += `${colors.gray}${JSON.stringify(context, null, 2)}${colors.reset}\n`;
-    }
-
-    // Write directly to stdout/stderr to bypass console interception
-    const stream = level === "ERROR" ? process.stderr : process.stdout;
-    stream.write(output);
-  }
-
-  /**
-   * Output log to browser console
-   */
-  private browserConsoleLog(level: LogLevel, entry: LogEntry): void {
+  private browserConsoleLog(
+    level: LogLevel,
+    message: string,
+    context?: Record<string, any>,
+  ): void {
+    const timestamp = new Date().toLocaleTimeString();
     const consoleMethod =
       level === "ERROR"
         ? "error"
@@ -238,11 +285,9 @@ export class Logger {
             ? "debug"
             : "log";
 
-    // Use original console method if available (to avoid interception loop)
     const consoleFunc = this.originalConsole?.[consoleMethod] || console[consoleMethod];
 
     if (typeof consoleFunc !== "undefined") {
-      const timestamp = new Date(entry["@timestamp"]).toLocaleTimeString();
       const styles = {
         DEBUG: "color: cyan",
         INFO: "color: green",
@@ -251,32 +296,23 @@ export class Logger {
       };
 
       consoleFunc(
-        `%c[${timestamp}] %c${level}%c ${entry.message}`,
+        `%c[${timestamp}] %c${level}%c ${message}`,
         "color: gray",
         styles[level] || "",
         "font-weight: normal",
       );
 
-      // Log context separately
-      const contextKeys = Object.keys(entry).filter(
-        (key) =>
-          ![
-            "@timestamp",
-            "log.level",
-            "log_type",
-            "message",
-            "service.name",
-            "service.version",
-            "env",
-          ].includes(key),
-      );
+      // Log context separately if present
+      if (context && Object.keys(context).length > 0) {
+        const displayContext = { ...context };
+        // Remove standard fields to reduce noise (but keep log_type and platform)
+        ["@timestamp", "log.level", "message", "service.name", "service.version", "env"].forEach(
+          (key) => delete displayContext[key]
+        );
 
-      if (contextKeys.length > 0) {
-        const context: Record<string, any> = {};
-        contextKeys.forEach((key) => {
-          context[key] = entry[key as keyof LogEntry];
-        });
-        consoleFunc(context);
+        if (Object.keys(displayContext).length > 0) {
+          consoleFunc(displayContext);
+        }
       }
     }
   }
@@ -367,8 +403,18 @@ export class Logger {
 
     const entry = this.buildLogEntry(level, logType, message, logContext);
 
-    // Console output
-    this.consoleLog(level, entry);
+    // Extract context for pino
+    const pinoContext: any = { ...entry };
+    delete pinoContext.message;
+    delete pinoContext["@timestamp"]; // Pino handles this
+
+    // Log with Pino (async but don't wait)
+    this.logWithPino(level, message, pinoContext).catch((err) => {
+      // Fallback to console if pino fails
+      if (this.originalConsole?.error) {
+        this.originalConsole.error("Pino logging failed:", err);
+      }
+    });
 
     // Remote logging
     if (this.config.remoteEndpoint) {
@@ -430,6 +476,13 @@ export class Logger {
   }
 
   /**
+   * Log database operations
+   */
+  public database(message: string, context?: LogContext): void {
+    this.processLog("INFO", "database", message, context);
+  }
+
+  /**
    * Log performance metrics
    */
   public performance(message: string, context?: LogContext): void {
@@ -451,7 +504,7 @@ export class Logger {
 
       this.performance(`Performance: ${name}`, {
         component: name,
-        duration_ms: Math.round(duration),
+        duration_ms: Math.round(duration * 100) / 100, // Round to 2 decimal places
         ...metadata,
       });
 
@@ -460,7 +513,7 @@ export class Logger {
       const duration = performance.now() - startTime;
       this.error(`Performance measurement failed: ${name}`, {
         component: name,
-        duration_ms: Math.round(duration),
+        duration_ms: Math.round(duration * 100) / 100,
         error: error as Error,
         ...metadata,
       });
@@ -483,7 +536,7 @@ export class Logger {
 
       this.performance(`Performance: ${name}`, {
         component: name,
-        duration_ms: Math.round(duration),
+        duration_ms: Math.round(duration * 100) / 100,
         ...metadata,
       });
 
@@ -492,12 +545,42 @@ export class Logger {
       const duration = performance.now() - startTime;
       this.error(`Performance measurement failed: ${name}`, {
         component: name,
-        duration_ms: Math.round(duration),
+        duration_ms: Math.round(duration * 100) / 100,
         error: error as Error,
         ...metadata,
       });
       throw error;
     }
+  }
+
+  /**
+   * Create a child logger with additional context
+   */
+  public child(bindings: Record<string, any>): Logger {
+    const childConfig = {
+      ...this.config,
+      metadata: {
+        ...this.config.metadata,
+        ...bindings,
+      },
+    };
+
+    // Create a new logger instance with inherited config
+    const childLogger = new Logger(childConfig);
+
+    // If parent has pino instance, create child pino instance
+    if (this.pinoLogger && !isBrowser) {
+      childLogger.pinoLogger = this.pinoLogger.child(bindings);
+    }
+
+    return childLogger;
+  }
+
+  /**
+   * Get the underlying Pino logger instance (server-side only)
+   */
+  public getPinoInstance(): PinoLogger | null {
+    return this.pinoLogger;
   }
 
   /**
