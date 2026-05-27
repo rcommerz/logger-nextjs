@@ -10,8 +10,24 @@ export class Logger {
   private logBuffer: LogEntry[] = [];
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly LOG_LEVELS = { DEBUG: 0, INFO: 1, WARN: 2, ERROR: 3 };
+  private originalConsole: {
+    log: (...args: any[]) => void;
+    info: (...args: any[]) => void;
+    warn: (...args: any[]) => void;
+    error: (...args: any[]) => void;
+    debug: (...args: any[]) => void;
+  };
 
   private constructor(config: LoggerConfig) {
+    // Store original console methods before any interception
+    this.originalConsole = {
+      log: console.log.bind(console),
+      info: console.info.bind(console),
+      warn: console.warn.bind(console),
+      error: console.error.bind(console),
+      debug: console.debug.bind(console),
+    };
+
     this.config = {
       level: "INFO",
       enableConsole: config.env === "development",
@@ -137,6 +153,82 @@ export class Logger {
   private consoleLog(level: LogLevel, entry: LogEntry): void {
     if (!this.config.enableConsole) return;
 
+    // Use Node.js stdout/stderr for direct output (bypasses console interception)
+    const isNode = typeof process !== "undefined" && process.versions?.node;
+
+    if (isNode) {
+      this.nodeConsoleLog(level, entry);
+    } else {
+      // Browser - use original console methods
+      this.browserConsoleLog(level, entry);
+    }
+  }
+
+  /**
+   * Output log to Node.js stdout/stderr (bypasses console interception)
+   */
+  private nodeConsoleLog(level: LogLevel, entry: LogEntry): void {
+    const timestamp = new Date(entry["@timestamp"]).toLocaleTimeString();
+
+    // ANSI color codes
+    const colors = {
+      DEBUG: "\x1b[36m", // Cyan
+      INFO: "\x1b[32m",  // Green
+      WARN: "\x1b[33m",  // Yellow
+      ERROR: "\x1b[31m", // Red
+      reset: "\x1b[0m",
+      gray: "\x1b[90m",
+      bold: "\x1b[1m",
+    };
+
+    const color = colors[level] || colors.reset;
+
+    // Build pretty formatted line
+    let output = `${colors.gray}[${timestamp}]${colors.reset} ${color}${colors.bold}${level}${colors.reset} ${colors.bold}${entry.message}${colors.reset}`;
+
+    // Add component/source if available
+    if (entry.component || entry.source) {
+      output += ` ${colors.gray}[${entry.component || entry.source}]${colors.reset}`;
+    }
+
+    output += "\n";
+
+    // Add context if present (excluding standard fields)
+    const contextKeys = Object.keys(entry).filter(
+      (key) =>
+        ![
+          "@timestamp",
+          "log.level",
+          "log_type",
+          "message",
+          "service.name",
+          "service.version",
+          "env",
+          "service_type",
+          "platform",
+          "component",
+          "source",
+          "user_agent",
+        ].includes(key),
+    );
+
+    if (contextKeys.length > 0) {
+      const context: Record<string, any> = {};
+      contextKeys.forEach((key) => {
+        context[key] = entry[key as keyof LogEntry];
+      });
+      output += `${colors.gray}${JSON.stringify(context, null, 2)}${colors.reset}\n`;
+    }
+
+    // Write directly to stdout/stderr to bypass console interception
+    const stream = level === "ERROR" ? process.stderr : process.stdout;
+    stream.write(output);
+  }
+
+  /**
+   * Output log to browser console
+   */
+  private browserConsoleLog(level: LogLevel, entry: LogEntry): void {
     const consoleMethod =
       level === "ERROR"
         ? "error"
@@ -146,8 +238,46 @@ export class Logger {
             ? "debug"
             : "log";
 
-    if (typeof console !== "undefined") {
-      console[consoleMethod](JSON.stringify(entry, null, 2));
+    // Use original console method if available (to avoid interception loop)
+    const consoleFunc = this.originalConsole?.[consoleMethod] || console[consoleMethod];
+
+    if (typeof consoleFunc !== "undefined") {
+      const timestamp = new Date(entry["@timestamp"]).toLocaleTimeString();
+      const styles = {
+        DEBUG: "color: cyan",
+        INFO: "color: green",
+        WARN: "color: orange",
+        ERROR: "color: red",
+      };
+
+      consoleFunc(
+        `%c[${timestamp}] %c${level}%c ${entry.message}`,
+        "color: gray",
+        styles[level] || "",
+        "font-weight: normal",
+      );
+
+      // Log context separately
+      const contextKeys = Object.keys(entry).filter(
+        (key) =>
+          ![
+            "@timestamp",
+            "log.level",
+            "log_type",
+            "message",
+            "service.name",
+            "service.version",
+            "env",
+          ].includes(key),
+      );
+
+      if (contextKeys.length > 0) {
+        const context: Record<string, any> = {};
+        contextKeys.forEach((key) => {
+          context[key] = entry[key as keyof LogEntry];
+        });
+        consoleFunc(context);
+      }
     }
   }
 
@@ -170,7 +300,10 @@ export class Logger {
       }
     } catch (error) {
       // Silently fail - don't want logging to break the app
-      console.error("Failed to send log:", error);
+      // Use original console to avoid circular logging
+      if (this.originalConsole?.error) {
+        this.originalConsole.error("Failed to send log:", error);
+      }
     }
   }
 

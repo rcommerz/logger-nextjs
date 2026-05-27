@@ -1,6 +1,6 @@
 {
   "name": "@rcommerz/logger-nextjs",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Production-ready structured logging for Next.js/React applications with OpenTelemetry support",
   "main": "dist/index.js",
   "module": "dist/index.js",
@@ -11,6 +11,12 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js",
+      "require": "./dist/client.js",
+      "default": "./dist/client.js"
     },
     "./package.json": "./package.json"
   },
